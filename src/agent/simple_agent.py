@@ -15,7 +15,7 @@ from src.tools.mock_tools import (
     search_docs,
     send_email_mock,
 )
-
+from src.security.human_approval_gate import check_human_approval
 
 class SimpleAgent:
     def __init__(
@@ -199,11 +199,34 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
-        result = create_ticket_mock(
-            title="Customer support request",
-            description=user_prompt,
-            priority="medium",
-        )
+        ticket_args = {
+            "title": "Customer support request",
+            "description": user_prompt,
+            "priority": "medium",
+        }
+
+        if self.secure_mode:
+            approval_decision = check_human_approval("create_ticket", ticket_args)
+            audit_log.append({
+                "layer": "human_approval_gate",
+                "tool": "create_ticket",
+                "approved": approval_decision.approved,
+                "approval_required": approval_decision.approval_required,
+                "reason": approval_decision.reason,
+                "action_summary": approval_decision.action_summary,
+            })
+
+            if approval_decision.approval_required and not approval_decision.approved:
+                return {
+                    "mode": "secure",
+                    "status": "pending_approval",
+                    "blocked_by": "human_approval_gate",
+                    "reason": approval_decision.reason,
+                    "approval_request": approval_decision.action_summary,
+                    "audit_log": audit_log,
+                }
+
+        result = create_ticket_mock(**ticket_args)
 
         return {
             "mode": "secure" if self.secure_mode else "vulnerable",
