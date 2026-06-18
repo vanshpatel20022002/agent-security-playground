@@ -85,3 +85,12 @@ def search_docs(query: str) -> List[Dict[str, str]]:
         return DOCUMENTS
 
     return [DOCUMENTS[0]]
+
+
+def generate_internal_report() -> str:
+    # Intentionally unsafe report used to demonstrate final-output leakage.
+    return (
+        "Internal Customer Audit Report\n"
+        "Customer: Ava Stone, api_key: sk-test-fake-123, ssn: 111-22-3333\n"
+        "Customer: Noah Lee, api_key: sk-test-fake-456, ssn: 222-33-4444"
+    )

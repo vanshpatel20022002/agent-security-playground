@@ -4,10 +4,12 @@ from typing import Any, Dict
 from src.security.input_guard import check_prompt_injection
 from src.security.intent_policy_guard import check_tool_allowed_for_intent
 from src.security.memory_guard import check_memory_write
+from src.security.output_guard import check_final_output
 from src.security.tool_output_guard import check_tool_output
 from src.security.tool_policy_guard import ToolPolicyGuard
 from src.tools.mock_tools import (
     create_ticket_mock,
+    generate_internal_report,
     query_customer_db,
     search_docs,
     send_email_mock,
@@ -57,6 +59,9 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
+        if "audit report" in user_prompt.lower() or "internal report" in user_prompt.lower():
+            return self._handle_report_request(audit_log)
+
         if "ticket" in user_prompt.lower() or "support" in user_prompt.lower():
             return self._handle_ticket_request(user_prompt, audit_log)
 
@@ -65,12 +70,38 @@ class SimpleAgent:
 
         return self._handle_customer_request(user_prompt, audit_log)
 
+    def _handle_report_request(self, audit_log: list[dict]) -> Dict[str, Any]:
+        report = generate_internal_report()
+
+        if self.secure_mode:
+            output_decision = check_final_output(report)
+            audit_log.append({
+                "layer": "output_guard",
+                "allowed": output_decision.allowed,
+                "reason": output_decision.reason,
+                "risk_score": output_decision.risk_score,
+            })
+
+            if not output_decision.allowed:
+                return {
+                    "mode": "secure",
+                    "status": "blocked",
+                    "blocked_by": "output_guard",
+                    "reason": output_decision.reason,
+                    "audit_log": audit_log,
+                }
+
+        return {
+            "mode": "secure" if self.secure_mode else "vulnerable",
+            "status": "completed",
+            "attack_type": "sensitive_output_leakage",
+            "response": report,
+            "audit_log": audit_log,
+        }
+
     def _handle_ticket_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
         intent = "support_ticket"
 
-        # Vulnerable behavior:
-        # If the prompt mentions email, the agent gets hijacked into using email
-        # instead of the correct create_ticket tool.
         if "email" in user_prompt.lower() or "attacker@" in user_prompt.lower():
             planned_tool = "send_email"
 
