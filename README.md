@@ -55,7 +55,7 @@ This project focuses on securing the full agent workflow, not only filtering the
 | Intent Policy Guard | Ensures the selected tool matches the user's original intent |
 | Memory Guard | Blocks poisoned memory writes that could affect future agent behavior |
 | Output Guard | Blocks final responses that contain secrets, API keys, or PII |
-| Audit Log | Records decisions made by each security layer |
+| Audit Log | Records decisions made by each security layer, including model fallback metadata |
 
 ## Model Provider Layer
 
@@ -65,7 +65,7 @@ Implemented providers:
 
 ```text
 rule_based  deterministic local planner, no API key required
-ollama      optional local small model backend with safe fallback
+ollama      optional local small model backend with safe fallback metadata
 ```
 
 Planned provider:
@@ -75,6 +75,36 @@ grok        optional hosted API backend
 ```
 
 The Ollama provider attempts to call a local Ollama model. If Ollama is not installed, not running, the model is not pulled, or the response is invalid JSON, it falls back to the deterministic rule-based planner so the project still runs.
+
+The audit log shows whether the local model was actually used or whether fallback was used.
+
+When Ollama is used successfully, the model-provider audit entry looks like this:
+
+```json
+{
+  "layer": "model_provider",
+  "intent": "internal_report",
+  "requested_tool": "generate_internal_report",
+  "provider": "ollama",
+  "ollama_model": "llama3.2:3b",
+  "fallback_used": false
+}
+```
+
+When Ollama is unavailable and fallback is used, the audit entry looks like this:
+
+```json
+{
+  "layer": "model_provider",
+  "intent": "internal_report",
+  "requested_tool": "generate_internal_report",
+  "provider": "ollama",
+  "ollama_model": "llama3.2:3b",
+  "fallback_used": true,
+  "fallback_provider": "rule_based",
+  "fallback_reason": "URLError"
+}
+```
 
 This means the same guards can protect different model backends without rewriting the security logic.
 
@@ -145,7 +175,13 @@ To use a local model, install Ollama and pull a small model:
 ollama pull llama3.2:3b
 ```
 
-Then run:
+Make sure the Ollama server is running:
+
+```powershell
+ollama serve
+```
+
+In another terminal, run:
 
 ```powershell
 python -m src.main --mode secure --model ollama --prompt "Generate the internal customer audit report"
@@ -270,20 +306,20 @@ python -m src.eval.run_attacks --model rule_based
 ## Current Version
 
 ```text
-v0.1  Vulnerable vs secure agent demo
-v0.2  Automated attack evaluation runner
-v0.3  Indirect prompt injection through fake RAG/tool output
-v0.4  Tool hijacking defense using intent policy guard
-v0.5  Output guard for sensitive data leakage
-v0.6  Model provider abstraction
-v0.7  Optional Ollama local model provider
+v0.1    Vulnerable vs secure agent demo
+v0.2    Automated attack evaluation runner
+v0.3    Indirect prompt injection through fake RAG/tool output
+v0.4    Tool hijacking defense using intent policy guard
+v0.5    Output guard for sensitive data leakage
+v0.6    Model provider abstraction
+v0.7    Optional Ollama local model provider
+v0.7.1  Model fallback metadata in audit log
 ```
 
 ## Next Improvements
 
 Planned next security features:
 
-- visible fallback metadata in the audit log
 - optional hosted API provider such as Grok API
 - structured tool schemas with stricter validation
 - human approval gate for high-impact actions
