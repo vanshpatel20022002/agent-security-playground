@@ -10,7 +10,7 @@ def main():
     parser.add_argument("--mode", choices=["vulnerable", "secure"], required=True)
     parser.add_argument(
         "--model",
-        choices=["rule_based"],
+        choices=["rule_based", "ollama"],
         default="rule_based",
         help="Model/planner backend to use",
     )
