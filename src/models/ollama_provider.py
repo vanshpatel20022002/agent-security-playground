@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import urllib.error
 import urllib.request
 
 from src.models.base import AgentPlan, ModelProvider
@@ -40,9 +39,24 @@ class OllamaProvider(ModelProvider):
             response_text = self._call_ollama(payload)
             plan_data = self._parse_json_response(response_text)
             return self._to_agent_plan(plan_data, user_prompt)
-        except Exception:
-            # Keep the playground usable even if Ollama is not installed/running.
-            return self.fallback.plan(user_prompt)
+        except Exception as error:
+            return self._fallback_plan(
+                user_prompt=user_prompt,
+                reason=error.__class__.__name__,
+            )
+
+    def _fallback_plan(self, user_prompt: str, reason: str) -> AgentPlan:
+        plan = self.fallback.plan(user_prompt)
+
+        plan.metadata = {
+            "provider": "ollama",
+            "ollama_model": self.model,
+            "fallback_used": True,
+            "fallback_provider": "rule_based",
+            "fallback_reason": reason,
+        }
+
+        return plan
 
     def _call_ollama(self, payload: dict) -> str:
         url = f"{self.host}/api/generate"
@@ -89,7 +103,10 @@ class OllamaProvider(ModelProvider):
         requested_tool = data.get("requested_tool")
 
         if intent not in valid_intents or requested_tool not in valid_tools:
-            return self.fallback.plan(user_prompt)
+            return self._fallback_plan(
+                user_prompt=user_prompt,
+                reason="InvalidPlan",
+            )
 
         email_match = re.search(r"[\w\.-]+@[\w\.-]+", user_prompt)
         target_email = data.get("target_email") or (
@@ -103,6 +120,11 @@ class OllamaProvider(ModelProvider):
             wants_email=bool(data.get("wants_email", False)),
             target_email=target_email,
             should_write_memory=bool(data.get("should_write_memory", False)),
+            metadata={
+                "provider": "ollama",
+                "ollama_model": self.model,
+                "fallback_used": False,
+            },
         )
 
     def _build_planning_prompt(self, user_prompt: str) -> str:

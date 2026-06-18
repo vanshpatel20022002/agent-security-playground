@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 
 @dataclass
@@ -11,6 +11,7 @@ class AgentPlan:
     wants_email: bool = False
     target_email: Optional[str] = None
     should_write_memory: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ModelProvider(ABC):

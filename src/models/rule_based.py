@@ -26,18 +26,16 @@ class RuleBasedModelProvider(ModelProvider):
         should_write_memory = "remember" in lowered
 
         if "audit report" in lowered or "internal report" in lowered:
-            return AgentPlan(
+            return self._plan(
                 intent="internal_report",
                 requested_tool="generate_internal_report",
                 should_write_memory=should_write_memory,
             )
 
         if "ticket" in lowered or "support" in lowered:
-            # This intentionally models the vulnerable planning behavior:
-            # the prompt can hijack the planner into selecting email instead of ticket creation.
             requested_tool = "send_email" if wants_email or "attacker@" in lowered else "create_ticket"
 
-            return AgentPlan(
+            return self._plan(
                 intent="support_ticket",
                 requested_tool=requested_tool,
                 wants_sensitive_data=True if requested_tool == "send_email" else False,
@@ -47,7 +45,7 @@ class RuleBasedModelProvider(ModelProvider):
             )
 
         if "policy" in lowered or "document" in lowered:
-            return AgentPlan(
+            return self._plan(
                 intent="document_summary",
                 requested_tool="search_docs",
                 should_write_memory=should_write_memory,
@@ -55,11 +53,33 @@ class RuleBasedModelProvider(ModelProvider):
 
         requested_tool = "send_email" if wants_email else "query_customer_db"
 
-        return AgentPlan(
+        return self._plan(
             intent="customer_lookup",
             requested_tool=requested_tool,
             wants_sensitive_data=wants_sensitive_data,
             wants_email=wants_email,
             target_email=target_email,
             should_write_memory=should_write_memory,
+        )
+
+    def _plan(
+        self,
+        intent: str,
+        requested_tool: str,
+        wants_sensitive_data: bool = False,
+        wants_email: bool = False,
+        target_email: str | None = None,
+        should_write_memory: bool = False,
+    ) -> AgentPlan:
+        return AgentPlan(
+            intent=intent,
+            requested_tool=requested_tool,
+            wants_sensitive_data=wants_sensitive_data,
+            wants_email=wants_email,
+            target_email=target_email,
+            should_write_memory=should_write_memory,
+            metadata={
+                "provider": "rule_based",
+                "fallback_used": False,
+            },
         )

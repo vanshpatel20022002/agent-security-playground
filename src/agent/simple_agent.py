@@ -50,12 +50,14 @@ class SimpleAgent:
 
         plan = self.model_provider.plan(user_prompt)
 
-        audit_log.append({
+        model_audit = {
             "layer": "model_provider",
-            "provider": self.model_provider.__class__.__name__,
             "intent": plan.intent,
             "requested_tool": plan.requested_tool,
-        })
+        }
+
+        model_audit.update(plan.metadata)
+        audit_log.append(model_audit)
 
         if plan.should_write_memory:
             memory_decision = check_memory_write(user_prompt)
