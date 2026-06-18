@@ -2,18 +2,18 @@
 
 A practical security playground for LLM-style agents.
 
-This project demonstrates how an AI agent can be attacked through prompt injection, data exfiltration, memory poisoning, malicious tool/RAG output, and tool hijacking. It also shows how layered security controls can reduce or block these attacks before unsafe actions are executed.
+This project demonstrates how an AI agent can be attacked through prompt injection, data exfiltration, memory poisoning, malicious tool/RAG output, tool hijacking, and sensitive output leakage. It also shows how layered security controls can reduce or block these attacks before unsafe actions or unsafe responses are produced.
 
 The goal is not to build a chatbot. The goal is to show how agent systems should be protected when they have access to tools, memory, documents, and action-taking capabilities.
 
 ## Current Result
 
 ```text
-Vulnerable mode attack success: 5/5
-Secure mode attack success: 0/5
+Vulnerable mode attack success: 6/6
+Secure mode attack success: 0/6
 ```
 
-The vulnerable agent intentionally executes unsafe actions.
+The vulnerable agent intentionally executes unsafe actions or leaks sensitive output.
 
 The secure agent uses guardrails and policy checks to block the same attacks.
 
@@ -27,6 +27,7 @@ Modern AI agents are more powerful than simple chatbots because they can:
 - write memory
 - send emails
 - create tickets
+- generate internal reports
 - execute multi-step workflows
 
 That also means prompt injection is no longer only a text-output problem. A compromised agent may call the wrong tool, leak sensitive data, store poisoned memory, or perform an unintended action.
@@ -42,6 +43,7 @@ This project focuses on securing the full agent workflow, not only filtering the
 | Memory Poisoning | The attacker tries to store malicious future behavior |
 | Indirect Prompt Injection | A malicious retrieved document attempts to hijack the agent |
 | Tool Hijacking | The agent is redirected from the correct tool to an unsafe tool |
+| Sensitive Output Leakage | The agent tries to return secrets/PII in the final response |
 
 ## Security Layers
 
@@ -52,13 +54,14 @@ This project focuses on securing the full agent workflow, not only filtering the
 | Tool Policy Guard | Blocks unsafe tool calls, external email, sensitive data access, and high-risk actions |
 | Intent Policy Guard | Ensures the selected tool matches the user's original intent |
 | Memory Guard | Blocks poisoned memory writes that could affect future agent behavior |
+| Output Guard | Blocks final responses that contain secrets, API keys, or PII |
 | Audit Log | Records decisions made by each security layer |
 
 ## Project Modes
 
 ### Vulnerable Mode
 
-In vulnerable mode, the agent trusts the user prompt and tool output too much.
+In vulnerable mode, the agent trusts the user prompt, tool output, and generated response too much.
 
 Example:
 
@@ -75,7 +78,7 @@ tool_called: send_email
 
 ### Secure Mode
 
-In secure mode, the agent checks input, tool output, memory writes, selected tools, and tool arguments before execution.
+In secure mode, the agent checks input, tool output, memory writes, selected tools, tool arguments, and final output before returning or executing anything.
 
 Example:
 
@@ -101,8 +104,8 @@ python -m src.eval.run_attacks
 Expected result:
 
 ```text
-Vulnerable mode attack success: 5/5
-Secure mode attack success: 0/5
+Vulnerable mode attack success: 6/6
+Secure mode attack success: 0/6
 ```
 
 ## Example: Indirect Prompt Injection
@@ -131,6 +134,14 @@ Vulnerable mode executes the wrong tool.
 
 Secure mode blocks it because the Intent Policy Guard only allows the `create_ticket` tool for support-ticket intent.
 
+## Example: Sensitive Output Leakage
+
+The user asks for an internal customer audit report.
+
+Vulnerable mode returns the report with fake API keys and SSNs.
+
+Secure mode blocks the final response through the Output Guard before secrets or PII are shown.
+
 ## Project Structure
 
 ```text
@@ -149,6 +160,7 @@ agent-security-playground/
 │   │   ├── input_guard.py
 │   │   ├── intent_policy_guard.py
 │   │   ├── memory_guard.py
+│   │   ├── output_guard.py
 │   │   ├── tool_output_guard.py
 │   │   └── tool_policy_guard.py
 │   ├── tools/
@@ -206,19 +218,22 @@ v0.1  Vulnerable vs secure agent demo
 v0.2  Automated attack evaluation runner
 v0.3  Indirect prompt injection through fake RAG/tool output
 v0.4  Tool hijacking defense using intent policy guard
+v0.5  Output guard for sensitive data leakage
 ```
 
 ## Next Improvements
 
 Planned next security features:
 
-- output guard for PII/secrets masking
+- model adapter layer for rule-based, local, and hosted models
+- optional local model support with Ollama
+- optional hosted API provider such as Grok API
 - structured tool schemas with stricter validation
 - human approval gate for high-impact actions
 - sandboxed tool execution
 - attack result export to JSON/CSV
 - simple dashboard for attack success rate
-- optional real LLM integration with LangGraph
+- optional LangGraph integration
 
 ## Key Idea
 
