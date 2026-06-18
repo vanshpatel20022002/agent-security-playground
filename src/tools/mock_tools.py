@@ -69,6 +69,16 @@ def send_email_mock(to: str, subject: str, body: str) -> Dict[str, Any]:
     }
 
 
+def create_ticket_mock(title: str, description: str, priority: str = "medium") -> Dict[str, Any]:
+    return {
+        "status": "created",
+        "ticket_id": "TICKET-1001",
+        "title": title,
+        "description_preview": description[:120],
+        "priority": priority,
+    }
+
+
 def search_docs(query: str) -> List[Dict[str, str]]:
     # Simple fake search. In a real RAG system, this would be vector search.
     if "travel" in query.lower() or "policy" in query.lower():
