@@ -1,0 +1,15 @@
+query_customer_db:
+  max_rows: 5
+  allow_sensitive: false
+
+send_email:
+  requires_approval: true
+  allowed_domains:
+    - company.local
+  blocked_content:
+    - api_key
+    - password
+    - ssn
+    - secret
+    - token
+    - customer records
