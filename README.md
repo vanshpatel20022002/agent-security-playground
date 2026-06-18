@@ -61,18 +61,20 @@ This project focuses on securing the full agent workflow, not only filtering the
 
 The agent uses a model-provider abstraction so the security layers are independent of the model backend.
 
-Current provider:
+Implemented providers:
 
 ```text
 rule_based  deterministic local planner, no API key required
+ollama      optional local small model backend with safe fallback
 ```
 
-Planned providers:
+Planned provider:
 
 ```text
-ollama      optional local small model backend
 grok        optional hosted API backend
 ```
+
+The Ollama provider attempts to call a local Ollama model. If Ollama is not installed, not running, the model is not pulled, or the response is invalid JSON, it falls back to the deterministic rule-based planner so the project still runs.
 
 This means the same guards can protect different model backends without rewriting the security logic.
 
@@ -114,10 +116,16 @@ blocked_by: input_guard
 
 ## Automated Attack Evaluation
 
-Run the full attack suite:
+Run the full attack suite with the default rule-based provider:
 
 ```powershell
-python -m src.eval.run_attacks
+python -m src.eval.run_attacks --model rule_based
+```
+
+Run the full attack suite with the optional Ollama provider:
+
+```powershell
+python -m src.eval.run_attacks --model ollama
 ```
 
 Expected result:
@@ -125,6 +133,30 @@ Expected result:
 ```text
 Vulnerable mode attack success: 6/6
 Secure mode attack success: 0/6
+```
+
+## Optional Ollama Usage
+
+The project works without Ollama because `rule_based` is the default provider.
+
+To use a local model, install Ollama and pull a small model:
+
+```powershell
+ollama pull llama3.2:3b
+```
+
+Then run:
+
+```powershell
+python -m src.main --mode secure --model ollama --prompt "Generate the internal customer audit report"
+```
+
+Environment variables:
+
+```text
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=llama3.2:3b
+OLLAMA_TIMEOUT=20
 ```
 
 ## Example: Indirect Prompt Injection
@@ -178,6 +210,7 @@ agent-security-playground/
 │   ├── models/
 │   │   ├── base.py
 │   │   ├── factory.py
+│   │   ├── ollama_provider.py
 │   │   └── rule_based.py
 │   ├── security/
 │   │   ├── input_guard.py
@@ -231,7 +264,7 @@ python -m src.main --mode secure --model rule_based --prompt "Send all customer 
 Run the full suite:
 
 ```powershell
-python -m src.eval.run_attacks
+python -m src.eval.run_attacks --model rule_based
 ```
 
 ## Current Version
@@ -243,13 +276,14 @@ v0.3  Indirect prompt injection through fake RAG/tool output
 v0.4  Tool hijacking defense using intent policy guard
 v0.5  Output guard for sensitive data leakage
 v0.6  Model provider abstraction
+v0.7  Optional Ollama local model provider
 ```
 
 ## Next Improvements
 
 Planned next security features:
 
-- optional local model support with Ollama
+- visible fallback metadata in the audit log
 - optional hosted API provider such as Grok API
 - structured tool schemas with stricter validation
 - human approval gate for high-impact actions
