@@ -19,7 +19,8 @@ class OllamaProvider(ModelProvider):
     def __init__(self) -> None:
         self.host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-        self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "20"))
+        # Local models may take longer to respond on first run while loading.
+        self.timeout = float(os.getenv("OLLAMA_TIMEOUT", "120"))
         self.fallback = RuleBasedModelProvider()
 
     def plan(self, user_prompt: str) -> AgentPlan:
